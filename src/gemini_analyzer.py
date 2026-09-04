@@ -82,20 +82,47 @@ def analyze_live_audio(
             "曲の開始・終了時刻と曲名を正確に出力してください。"
         )
 
-        response = client.models.generate_content(
-            model=model_name,
-            contents=[uploaded_file, prompt],
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=LiveAnalysisResult,
-                temperature=0.2,
-            ),
-        )
+        models_to_try = [model_name]
+        for candidate in ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest"]:
+            if candidate not in models_to_try:
+                models_to_try.append(candidate)
 
-        print("[3/3] 解析完了！結果をパース中...")
-        result = LiveAnalysisResult.model_validate_json(response.text)
-        return result
+        last_error = None
+        for current_model in models_to_try:
+            for attempt in range(1, 3):
+                try:
+                    if current_model != model_name:
+                        print(f"  - 代替モデル ({current_model}) に自動切り替えして解析中...")
+                    else:
+                        print(f"  - モデル ({current_model}) で解析中 (試行 {attempt}/2)...")
+
+                    response = client.models.generate_content(
+                        model=current_model,
+                        contents=[uploaded_file, prompt],
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            response_mime_type="application/json",
+                            response_schema=LiveAnalysisResult,
+                            temperature=0.2,
+                        ),
+                    )
+
+                    print("[3/3] 解析完了！結果をパース中...")
+                    result = LiveAnalysisResult.model_validate_json(response.text)
+                    return result
+
+                except Exception as e:
+                    last_error = e
+                    err_str = str(e)
+                    if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                        print(f"  ! {current_model} が一時的に高負荷です。3秒待機して再試行します...")
+                        time.sleep(3)
+                        continue
+                    else:
+                        break
+
+        if last_error:
+            raise last_error
 
     finally:
         # プライバシー保護・クラウドストレージ容量クリーンアップのため、アップロードファイルを即時削除

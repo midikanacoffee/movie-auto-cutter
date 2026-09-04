@@ -3,6 +3,14 @@ import json
 import sys
 from pathlib import Path
 
+# Windows環境での文字化けおよびUnicodeEncodeErrorを防止
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from src.audio_extractor import extract_audio, get_video_duration
 from src.gemini_analyzer import analyze_live_audio
 from src.models import LiveAnalysisResult
