@@ -59,26 +59,55 @@ class TestEndToEndSplit(unittest.TestCase):
                 start_time="00:00:02",
                 end_time="00:00:07",
                 segment_type="song",
+                lyrics="La la la",
             ),
             SongSegment(
                 index=2,
-                title="Song B",
+                title="Member MC",
                 start_time="00:00:08",
-                end_time="00:00:13",
+                end_time="00:00:10",
+                segment_type="mc",
+            ),
+            SongSegment(
+                index=3,
+                title="Song B",
+                start_time="00:00:11",
+                end_time="00:00:14",
                 segment_type="song",
             ),
         ]
-        output_dir = self.test_dir / "split_output"
+        # 1. separate モード（MCも別ファイルで切り出し、字幕＆YouTube情報も生成）
+        output_dir = self.test_dir / "split_separate"
         generated = split_video(
             video_path=self.dummy_video,
             segments=segments,
             output_dir=output_dir,
-            margin_start=1.0,
-            margin_end=1.0,
+            margin_start=0.5,
+            margin_end=0.5,
+            mc_mode="separate",
+            generate_subtitles=True,
+            generate_youtube_info=True,
         )
-        self.assertEqual(len(generated), 2)
+        self.assertEqual(len(generated), 3)
         self.assertTrue((output_dir / "01_Song A.mp4").exists())
-        self.assertTrue((output_dir / "02_Song B.mp4").exists())
+        self.assertTrue((output_dir / "01_Song A.srt").exists())
+        self.assertTrue((output_dir / "01_Song A_youtube_info.txt").exists())
+        self.assertTrue((output_dir / "02_[MC]_Member MC.mp4").exists())
+        self.assertTrue((output_dir / "03_Song B.mp4").exists())
+
+        # 2. attach モード（前のMCを曲の冒頭に結合）
+        output_dir_attach = self.test_dir / "split_attach"
+        generated_attach = split_video(
+            video_path=self.dummy_video,
+            segments=segments,
+            output_dir=output_dir_attach,
+            margin_start=0.5,
+            margin_end=0.5,
+            mc_mode="attach",
+        )
+        self.assertEqual(len(generated_attach), 2)
+        self.assertTrue((output_dir_attach / "01_Song A.mp4").exists())
+        self.assertTrue((output_dir_attach / "03_[MC+Song]_Song B.mp4").exists())
 
 
 if __name__ == "__main__":
