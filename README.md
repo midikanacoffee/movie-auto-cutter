@@ -1,43 +1,60 @@
 # Live Movie Auto Cutter (ライブ動画 自動曲間認識・分割ツール)
 
-ライブ動画（MP4等）から音声を抽出し、Gemini APIを用いて各楽曲の境界（開始・終了時間）と曲名を自動特定した上で、ffmpegを用いて曲ごとに自動分割・自動命名するローカルツールです。
+ライブ動画（MP4等）から音声を抽出し、最新の **Gemini 3.8 Flash** を用いて各楽曲の境界（開始・終了時間）と曲名を自動特定した上で、ffmpegを用いて曲ごとに自動分割・自動命名して保存するローカル完結型ツールです。
 
-## 特徴
-- **AI曲間認識**: Gemini APIの音声解析により、演奏・MC・インターバルを判別
-- **高速・無劣化分割**: ffmpegのストリームコピーによる高速なカット処理
-- **安全マージン機能**: 曲頭・曲末が切れないよう前後に自動マージンを設定
-- **フォールバック命名**: 曲名が特定できない場合でも歌詞やMC内容から自動命名
-- **セキュリティ配慮**: 動画・音声データやAPIキーはGit管理外（`.gitignore`）に隔離
+---
+
+## 主な特徴
+
+- **最新AIによる高精度曲間認識**: 最新の `gemini-3.8-flash` モデルにより、演奏、MC、客席歓声、アンコール待ちを自動判別。
+- **超高速・無劣化カット**: ffmpegのストリームコピー（`-c copy`）により、画質劣化ゼロ・数秒での高速分割を実現。
+- **安全マージン機能**: 曲頭・曲末の切れを防ぐため、開始前2.0秒・終了後2.0秒（秒数調整可能）の安全マージンを自動付与。
+- **フォールバック自動命名**: 曲名が分からない未知の楽曲でも、歌詞や演奏の特徴から「`01_Track_01_歌詞フレーズ.mp4`」などの識別しやすいファイル名を自動命名。
+- **手動微調整モード**: `--dry-run` でセットリストJSONのみを出力し、秒数や曲名を手動編集してから切り出す柔軟なフローをサポート。
+- **徹底したセキュリティ・プライバシー保護**: APIキー（`.env`）や動画・音声データは `.gitignore` により完全隔離。クラウド側の解析用一時音声も処理完了後に即時削除。
+
+---
 
 ## 必要要件
-- Python 3.10以上
-- ffmpeg（システム環境変数PATHに通っていること）
-- Google Gemini API Key
+
+- **OS**: Windows / macOS / Linux
+- **Python**: 3.10 以上
+- **ffmpeg**: システム環境変数 `PATH` に通っていること
+- **Gemini API Key**: [Google AI Studio](https://aistudio.google.com/app/apikey) より無料で取得可能
+
+---
 
 ## セットアップ
-1. `.env.example` をコピーして `.env` を作成し、APIキーを設定してください：
+
+1. 設定用テンプレート `.env.example` をコピーして `.env` を作成します：
    ```bash
    cp .env.example .env
    ```
-2. `.env` を開き、`GEMINI_API_KEY` に実際のAPIキーを記述します。
-   ※ `.env` ファイルはGitには絶対にコミットされません。
+2. `.env` ファイルを開き、取得したGemini APIキーを設定してください：
+   ```env
+   GEMINI_API_KEY=ここにAPIキーを記述
+   ```
+   > [!NOTE]
+   > `.env` ファイルは `.gitignore` により厳重に保護されているため、Gitにコミットされることはありません。
+
+---
 
 ## 使い方
 
-### 方法 1: ドラッグ＆ドロップ（最も簡単）
-対象のライブ動画ファイル（`.mp4`, `.mkv`, `.mov` 等）を、プロジェクトフォルダ内にある **`drag_and_drop_cutter.bat`** にドラッグ＆ドロップするだけで自動で処理が開始されます。
+### 方法 1: ドラッグ＆ドロップ（最も手軽）
+動画ファイル（`.mp4`, `.mkv`, `.mov` 等）を、プロジェクトフォルダ内にある **`drag_and_drop_cutter.bat`** にドラッグ＆ドロップするだけで、自動で音声抽出から曲ごとの分割まで完了します。
 
 ### 方法 2: コマンドライン実行
-ターミナル（PowerShell等）から詳細オプションを指定して実行できます：
+ターミナル（PowerShell等）から、各種オプションを指定して柔軟に実行できます：
 
 ```powershell
 # 基本実行（楽曲ごとに自動分割）
 python main.py "path/to/live.mp4"
 
 # 出力先フォルダを指定する場合
-python main.py "path/to/live.mp4" -o "D:\MySongs"
+python main.py "path/to/live.mp4" -o "D:\MyLiveVideos\Songs"
 
-# MC区間も動画として切り出す場合
+# MC区間も動画として切り出したい場合
 python main.py "path/to/live.mp4" --include-mc
 
 # まずはAIが認識した曲名・タイムスタンプ（セットリスト）だけ確認したい場合
@@ -47,7 +64,24 @@ python main.py "path/to/live.mp4" --dry-run
 python main.py "path/to/live.mp4" --from-json "./output/live/setlist.json"
 ```
 
+### CLIオプション一覧
+
+| オプション | 型 / デフォルト | 説明 |
+| :--- | :--- | :--- |
+| `video_path` | 文字列 (必須) | 分割対象のライブ動画ファイルパス |
+| `-o`, `--output-dir` | 文字列 (`./output/<動画名>/`) | 分割後動画の保存先フォルダ |
+| `--model` | 文字列 (`gemini-3.8-flash`) | 使用するGeminiモデル名 |
+| `--margin-start` | 数値 (`2.0`) | 曲開始前の安全マージン秒数（頭切れ防止） |
+| `--margin-end` | 数値 (`2.0`) | 曲終了後の安全マージン秒数（余韻切れ防止） |
+| `--include-mc` | フラグ (`False`) | MC（トーク）区間も個別に切り出して保存する |
+| `--reencode` | フラグ (`False`) | キーフレーム吸着による秒数のズレを防ぐ高精度再エンコードモード |
+| `--dry-run` | フラグ (`False`) | 動画分割を行わず、セットリスト解析とJSON保存のみ実行 |
+| `--from-json` | 文字列 (`None`) | 既存のセットリストJSONを読み込んで動画分割のみ実行 |
+
+---
+
 ## 出力先とファイル構成
+
 デフォルトでは、本プロジェクト内の **`output/<動画ファイル名>/`** フォルダに出力されます。
 
 ```text
@@ -57,9 +91,27 @@ output/
     ├── 02_曲名B.mp4
     ├── 03_曲名C.mp4
     ├── ...
-    └── setlist.json   # AIが認識した曲名・時間・メモの一覧データ
+    └── setlist.json   # AIが認識した曲名・タイムスタンプ・メモの一覧データ
 ```
 
-> [!NOTE]
-> `output/` フォルダは `.gitignore` によりGit管理外となっているため、切り出された動画ファイルが誤ってGitにコミットされる心配はありません。
+---
 
+## テスト用サンプル動画の生成
+
+手元にライブ動画がない場合でも、以下のコマンドで15秒の動作確認用サンプル動画（`sample_live.mp4`）を生成できます：
+
+```powershell
+python create_sample_live.py
+```
+
+生成された `sample_live.mp4` を `drag_and_drop_cutter.bat` にドラッグ＆ドロップして動作をテストできます。
+
+---
+
+## 詳細ドキュメント
+
+より詳細な仕様やトラブルシューティングについては、以下のドキュメントをご参照ください：
+- 📐 [システム詳細設計書 & アーキテクチャ判断記録 (ADR)](docs/live_movie_auto_cutter/architecture.md)
+- ❓ [トラブルシューティング & よくある質問 (FAQ)](docs/live_movie_auto_cutter/troubleshooting.md)
+- 📋 [タスク進捗状況 (task.md)](docs/live_movie_auto_cutter/task.md)
+- 📝 [実装・検証レポート (walkthrough.md)](docs/live_movie_auto_cutter/walkthrough.md)
