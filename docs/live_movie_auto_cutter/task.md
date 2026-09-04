@@ -44,3 +44,23 @@
 - [x] トラブルシューティング & FAQ (`docs/live_movie_auto_cutter/troubleshooting.md`) の作成
 - [x] Antigravity全体スキル (`proactive-development-standards`) の登録
 - [x] 全プルリクエスト (PR #1 〜 #6) の作成および main へのマージ完了
+
+## フェーズ 6: オープニング/エンディング・動画演出（フェード・テロップ）
+- [x] 4区分セグメンテーション（Opening/Song/MC/Ending）の判定・モデル定義 (`src/models.py`, `src/gemini_analyzer.py`)
+- [x] 歌詞幻覚の抑制プロンプト強化（聞き取れない場合は空文字）
+- [x] 動画演出フィルタ生成モジュール (`src/video_effects.py`) の新規実装
+  - 冒頭フェードイン・末尾フェードアウト（映像・音声）
+  - Windows日本語フォント（Meiryo）自動検出
+  - 曲名・アーティスト名テロップ（四隅指定: 左下/右下/左上/右上、半透明ボックス付き）
+  - 動画末尾メッセージ（「ご視聴ありがとうございました」等）
+- [x] 動画切り出しモジュール (`src/video_splitter.py`) の演出ハイブリッド適用とOpening/Ending命名 (`00_[Opening]_...mp4`, `99_[Ending]_...mp4`)
+- [x] 対話型ウィザード (`src/wizard.py`) へのオープニング/エンディングおよび演出・テロップ位置の質問追加
+- [x] 単体テスト & E2E演出テスト追加 (`tests/test_video_effects.py`, `tests/test_e2e_split.py`) (全16件 PASS)
+- [x] ドキュメント同期更新 (`README.md`, `docs/live_movie_auto_cutter/architecture.md` ADR-07, `docs/live_movie_auto_cutter/troubleshooting.md` Q10-Q13)
+
+## フェーズ 7: Public（公開）リポジトリ対応準備
+- [x] 機密情報・APIキー・個人パスの全Git履歴精密スキャン（完全安全を確認）
+- [x] 外部依存ライブラリ一覧 (`requirements.txt`) の作成
+- [x] オープンソースライセンスファイル (`LICENSE`: MIT License) の作成
+- [x] `README.md` のセットアップ手順更新 (`pip install -r requirements.txt`) およびライセンス表記追加
+
