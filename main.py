@@ -15,7 +15,7 @@ if sys.platform == "win32":
 from src.audio_extractor import extract_audio, get_video_duration
 from src.gemini_analyzer import analyze_live_audio
 from src.logger import setup_logger
-from src.models import LiveAnalysisResult
+from src.models import LiveAnalysisResult, VideoEffectsConfig
 from src.video_splitter import split_video
 from src.wizard import run_interactive_wizard
 
@@ -29,19 +29,21 @@ def print_summary_table(result: LiveAnalysisResult) -> None:
     if result.recorded_date:
         print(f"📅 開催日・収録日: {result.recorded_date}")
     print("=" * 64)
-    print(f"{'No':<4} | {'種類':<6} | {'時間':<17} | {'曲名 / 内容'}")
+    print(f"{'No':<4} | {'種類':<8} | {'時間':<17} | {'曲名 / 内容'}")
     print("-" * 64)
 
     type_labels = {
         "song": "楽曲",
         "mc": "MC",
+        "opening": "オープニング",
+        "ending": "エンディング",
         "interval": "待機",
     }
 
     for seg in result.segments:
         label = type_labels.get(seg.segment_type, seg.segment_type)
         time_range = f"{seg.start_time} - {seg.end_time}"
-        print(f"{seg.index:<4} | {label:<6} | {time_range:<17} | {seg.title}")
+        print(f"{seg.index:<4} | {label:<8} | {time_range:<17} | {seg.title}")
         if seg.youtube_metadata and seg.youtube_metadata.mood_and_atmosphere:
             print(f"     └ 雰囲気: {seg.youtube_metadata.mood_and_atmosphere}")
         elif seg.notes:
@@ -79,6 +81,16 @@ def main() -> None:
         help="MCの扱い方: separate(個別に保存), attach(直後の曲に結合), omit(楽曲のみ) (デフォルト: separate)",
     )
     parser.add_argument(
+        "--no-opening",
+        action="store_true",
+        help="オープニング区間の切り出しをスキップする",
+    )
+    parser.add_argument(
+        "--no-ending",
+        action="store_true",
+        help="エンディング区間の切り出しをスキップする",
+    )
+    parser.add_argument(
         "--margin-start",
         type=float,
         default=3.5,
@@ -98,14 +110,36 @@ def main() -> None:
         help="対話型ウィザードをスキップし、指定された引数（またはデフォルト）で即時実行する",
     )
     parser.add_argument(
-        "--no-subtitles",
+        "--subtitles",
         action="store_true",
-        help="歌詞字幕 (.srt) ファイルの出力をオフにする",
+        help="歌詞字幕 (.srt) ファイルを出力する（歌詞が聞き取れた場合）",
     )
     parser.add_argument(
         "--no-youtube-info",
         action="store_true",
         help="YouTube投稿用情報テキスト (.txt) の出力をオフにする",
+    )
+    parser.add_argument(
+        "--fade",
+        action="store_true",
+        help="冒頭フェードインおよび末尾フェードアウト演出を付与する",
+    )
+    parser.add_argument(
+        "--title-overlay",
+        action="store_true",
+        help="曲開始時に曲名・アーティスト名テロップを表示する",
+    )
+    parser.add_argument(
+        "--overlay-pos",
+        choices=["bottom_left", "bottom_right", "top_left", "top_right"],
+        default="bottom_left",
+        help="テロップの表示位置 (デフォルト: bottom_left)",
+    )
+    parser.add_argument(
+        "--closing-message",
+        type=str,
+        default="ご視聴ありがとうございました",
+        help="末尾に表示するエンディングメッセージ (デフォルト: ご視聴ありがとうございました)",
     )
     parser.add_argument(
         "--reencode",
@@ -138,20 +172,33 @@ def main() -> None:
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    effects_config = VideoEffectsConfig(
+        enable_fade=args.fade,
+        enable_title_overlay=args.title_overlay,
+        overlay_position=args.overlay_pos,
+        enable_closing_message=bool(args.closing_message and args.fade),
+        closing_message=args.closing_message,
+    )
+
     # 対話環境（TTY）であり、かつウィザードスキップフラグがない場合はウィザードを起動
     if not args.no_wizard and sys.stdin.isatty():
         wizard_config = run_interactive_wizard(video_path.name)
         mc_mode = wizard_config.mc_mode
+        include_opening = wizard_config.include_opening
+        include_ending = wizard_config.include_ending
         margin_start = wizard_config.margin_start
         margin_end = wizard_config.margin_end
         generate_subtitles = wizard_config.generate_subtitles
         generate_youtube_info = wizard_config.generate_youtube_info
         reencode = wizard_config.reencode
+        effects_config = wizard_config.effects_config
     else:
         mc_mode = args.mc_mode
+        include_opening = not args.no_opening
+        include_ending = not args.no_ending
         margin_start = args.margin_start
         margin_end = args.margin_end
-        generate_subtitles = not args.no_subtitles
+        generate_subtitles = args.subtitles
         generate_youtube_info = not args.no_youtube_info
         reencode = args.reencode
 
@@ -169,7 +216,6 @@ def main() -> None:
             temp_dir = Path("./temp")
             temp_dir.mkdir(parents=True, exist_ok=True)
 
-            # 日本語や記号を含む動画名でも安全にAPIアップロードできるよう、ハッシュを用いたASCIIファイル名にする
             safe_hash = hashlib.md5(video_path.name.encode("utf-8")).hexdigest()[:10]
             temp_audio_path = temp_dir / f"extracted_{safe_hash}.mp3"
 
@@ -181,14 +227,12 @@ def main() -> None:
                 logger.info(f"\n[ステップ 2/3] Gemini API ({args.model}) でセットリスト・曲間・YouTube情報を解析中...")
                 analysis_result = analyze_live_audio(temp_audio_path, model_name=args.model)
 
-                # 解析結果のJSONを保存（ユーザーが確認・微調整できるように）
                 saved_json_path = output_dir / "setlist.json"
                 with open(saved_json_path, "w", encoding="utf-8") as f:
                     f.write(analysis_result.model_dump_json(indent=2))
-                logger.info(f"  ✓ 詳細セットリスト（YouTube情報・歌詞含む）を保存しました: {saved_json_path}")
+                logger.info(f"  ✓ 詳細セットリスト（YouTube情報含む）を保存しました: {saved_json_path}")
 
             finally:
-                # 一時音声ファイルのクリーンアップ
                 if temp_audio_path.exists():
                     try:
                         temp_audio_path.unlink()
@@ -213,6 +257,9 @@ def main() -> None:
             margin_start=margin_start,
             margin_end=margin_end,
             mc_mode=mc_mode,
+            include_opening=include_opening,
+            include_ending=include_ending,
+            effects_config=effects_config,
             reencode=reencode,
             max_duration=max_duration if max_duration > 0 else None,
             generate_subtitles=generate_subtitles,
