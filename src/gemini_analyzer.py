@@ -1,5 +1,7 @@
 import os
+import shutil
 import time
+import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
@@ -61,7 +63,26 @@ def analyze_live_audio(
     client = get_gemini_client()
 
     print(f"[1/3] 音声ファイルをGemini APIにアップロード中: {audio_path.name}")
-    uploaded_file = client.files.upload(file=str(audio_path))
+
+    # 日本語等の非ASCII文字が含まれている場合、HTTPヘッダーのUnicodeEncodeErrorを防ぐためASCII名の一時ファイルを使用
+    safe_upload_path = audio_path
+    temp_ascii_copy = None
+    try:
+        audio_path.name.encode("ascii")
+    except UnicodeEncodeError:
+        ascii_filename = f"upload_{uuid.uuid4().hex[:8]}{audio_path.suffix}"
+        temp_ascii_copy = audio_path.parent / ascii_filename
+        shutil.copy2(audio_path, temp_ascii_copy)
+        safe_upload_path = temp_ascii_copy
+
+    try:
+        uploaded_file = client.files.upload(file=str(safe_upload_path))
+    finally:
+        if temp_ascii_copy and temp_ascii_copy.exists():
+            try:
+                temp_ascii_copy.unlink()
+            except Exception:
+                pass
 
     try:
         # アップロードしたファイルの処理完了（ACTIVE状態）を待機

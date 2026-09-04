@@ -82,7 +82,7 @@ python main.py "path/to/live.mp4" --from-json "./output/live/setlist.json"
 
 ## 出力先とファイル構成
 
-デフォルトでは、本プロジェクト内の **`output/<動画ファイル名>/`** フォルダに出力されます。
+デフォルトでは、本プロジェクト内の **`output/<動画ファイル名>/`** フォルダに出力されます。また、実行ログは **`logs/app.log`** に自動保存されます。
 
 ```text
 output/
@@ -92,7 +92,13 @@ output/
     ├── 03_曲名C.mp4
     ├── ...
     └── setlist.json   # AIが認識した曲名・タイムスタンプ・メモの一覧データ
+
+logs/
+└── app.log            # 実行履歴およびエラー時の詳細スタックトレース
 ```
+
+> [!NOTE]
+> `output/` および `logs/` フォルダは `.gitignore` によりGit管理外となっているため、切り出された動画や個人ログが誤ってGitにコミットされる心配はありません。
 
 ---
 
