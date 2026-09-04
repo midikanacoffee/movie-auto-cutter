@@ -4,8 +4,10 @@
 画面の質問にEnterを押すだけで最適な設定で動画分割を実行できます。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
+
+from src.models import VideoEffectsConfig
 
 
 @dataclass
@@ -13,9 +15,12 @@ class WizardConfig:
     mc_mode: Literal["separate", "attach", "omit"] = "separate"
     margin_start: float = 3.5
     margin_end: float = 3.5
-    generate_subtitles: bool = True
+    include_opening: bool = True
+    include_ending: bool = True
+    generate_subtitles: bool = False
     generate_youtube_info: bool = True
     reencode: bool = False
+    effects_config: VideoEffectsConfig = field(default_factory=VideoEffectsConfig)
 
 
 def run_interactive_wizard(video_name: str) -> WizardConfig:
@@ -23,16 +28,16 @@ def run_interactive_wizard(video_name: str) -> WizardConfig:
 
     Enterキーを押すだけで推奨（デフォルト）値が自動選択されます。
     """
-    print("\n" + "=" * 62)
+    print("\n" + "=" * 64)
     print("🎬 Live Movie Auto Cutter - 切り出し設定ウィザード")
     print(f"対象動画: {video_name}")
     print("（※各質問は、何も入力せず [Enter] を押すと推奨値が選ばれます）")
-    print("=" * 62 + "\n")
+    print("=" * 64 + "\n")
 
     config = WizardConfig()
 
     # 1. MCの扱い
-    print("【1/4】MC（トーク）の扱いを選択してください:")
+    print("【1/5】MC（トーク）の扱いを選択してください:")
     print("  [1] MCも別ファイルとして個別に保存する (推奨: [MC]_タイトル.mp4)")
     print("  [2] MCを直後の曲の冒頭に結合して1本の動画にする ([MC+Song]_タイトル.mp4)")
     print("  [3] MCは除外する（楽曲のみ切り出し）")
@@ -45,8 +50,22 @@ def run_interactive_wizard(video_name: str) -> WizardConfig:
         config.mc_mode = "separate"
     print(f"  → 選択: {config.mc_mode}\n")
 
-    # 2. 安全マージン
-    print("【2/4】曲前後の安全マージン（余白）を選択してください:")
+    # 2. オープニングとエンディング
+    print("【2/5】オープニング（開演前）とエンディング（終演後）も別で切り出しますか？")
+    print("  [1] 切り出す (推奨: 00_[Opening]_...mp4 / 99_[Ending]_...mp4)")
+    print("  [2] 切り出さない")
+    choice_oe = input("選択 [1-2] (デフォルト: 1): ").strip()
+    if choice_oe == "2":
+        config.include_opening = False
+        config.include_ending = False
+        print("  → 選択: 切り出さない\n")
+    else:
+        config.include_opening = True
+        config.include_ending = True
+        print("  → 選択: オープニング・エンディングも切り出す\n")
+
+    # 3. 安全マージン
+    print("【3/5】曲前後の安全マージン（余白）を選択してください:")
     print("  [1] 標準 (前後 3.5秒) - 余裕をもった切り出し (推奨)")
     print("  [2] 広め (前後 5.0秒) - 歓声や会場の雰囲気を多めに残す")
     print("  [3] 狭め (前後 2.0秒) - タイトに切る")
@@ -73,34 +92,49 @@ def run_interactive_wizard(video_name: str) -> WizardConfig:
         config.margin_end = 3.5
     print(f"  → 選択: 前後 {config.margin_start:.1f} 秒\n")
 
-    # 3. 歌詞字幕 (.srt) と YouTube投稿用情報 (.txt)
-    print("【3/4】歌詞字幕 (.srt) と YouTube投稿用情報 (.txt) を出力しますか？")
-    print("  [1] 出力する (推奨 - 各曲の字幕と概要欄用テキストを自動生成)")
+    # 4. 動画演出（テロップ・フェード・終了メッセージ）
+    print("【4/5】曲動画に演出（フェードイン/アウト・曲名テロップ・終了メッセージ）を付けますか？")
+    print("  [1] つけない (推奨: 超高速・無劣化カット、画質劣化ゼロで数秒で完了)")
+    print("  [2] つける (YouTube向け演出: フェードイン/アウト・曲名テロップ・「ご視聴ありがとうございました」を自動合成)")
+    choice_fx = input("選択 [1-2] (デフォルト: 1): ").strip()
+
+    if choice_fx == "2":
+        print("  → 演出オプションを有効にします。")
+        config.effects_config.enable_fade = True
+        config.effects_config.enable_title_overlay = True
+        config.effects_config.enable_closing_message = True
+
+        # テロップ位置の選択
+        print("\n  曲名・アーティスト名テロップの表示位置を選択してください:")
+        print("    [1] 左下 (推奨 - 音楽番組風)")
+        print("    [2] 右下")
+        print("    [3] 左上")
+        print("    [4] 右上")
+        choice_pos = input("  選択 [1-4] (デフォルト: 1): ").strip()
+        pos_map = {
+            "2": "bottom_right",
+            "3": "top_left",
+            "4": "top_right",
+        }
+        config.effects_config.overlay_position = pos_map.get(choice_pos, "bottom_left")
+        print(f"  → テロップ位置: {config.effects_config.overlay_position}\n")
+    else:
+        print("  → 選択: 演出なし（高速・無劣化カット）\n")
+
+    # 5. YouTube投稿用テキスト (.txt) の出力
+    print("【5/5】YouTube投稿用情報テキスト (.txt) を自動出力しますか？")
+    print("  [1] 出力する (推奨 - 各曲のタイトル・概要欄コピペ用テキストを自動生成)")
     print("  [2] 出力しない")
-    choice_sub = input("選択 [1-2] (デフォルト: 1): ").strip()
-    if choice_sub == "2":
-        config.generate_subtitles = False
+    choice_yt = input("選択 [1-2] (デフォルト: 1): ").strip()
+    if choice_yt == "2":
         config.generate_youtube_info = False
         print("  → 選択: 出力しない\n")
     else:
-        config.generate_subtitles = True
         config.generate_youtube_info = True
         print("  → 選択: 出力する\n")
 
-    # 4. 切り出し方式（無劣化 or 高精度再エンコード）
-    print("【4/4】動画の切り出し方式を選択してください:")
-    print("  [1] 高速・無劣化カット (数秒で完了・画質劣化ゼロ) (推奨)")
-    print("  [2] 高精度再エンコード (秒数通りの完全フレーム精度・少し時間がかかります)")
-    choice_enc = input("選択 [1-2] (デフォルト: 1): ").strip()
-    if choice_enc == "2":
-        config.reencode = True
-        print("  → 選択: 高精度再エンコード\n")
-    else:
-        config.reencode = False
-        print("  → 選択: 高速・無劣化カット\n")
-
-    print("=" * 62)
+    print("=" * 64)
     print("✓ 設定完了！動画の解析と分割処理を開始します...")
-    print("=" * 62 + "\n")
+    print("=" * 64 + "\n")
 
     return config

@@ -2,8 +2,9 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-from src.models import SongSegment, sanitize_filename, seconds_to_time_str
+from src.models import SongSegment, VideoEffectsConfig, sanitize_filename, seconds_to_time_str
 from src.subtitle_generator import create_srt_file, export_youtube_info
+from src.video_effects import build_filtergraph
 
 
 def split_video(
@@ -13,6 +14,9 @@ def split_video(
     margin_start: float = 3.5,
     margin_end: float = 3.5,
     mc_mode: Literal["separate", "attach", "omit"] = "separate",
+    include_opening: bool = True,
+    include_ending: bool = True,
+    effects_config: VideoEffectsConfig | None = None,
     reencode: bool = False,
     max_duration: float | None = None,
     generate_subtitles: bool = True,
@@ -33,11 +37,13 @@ def split_video(
                  - "separate": MCも曲とは別の独立した動画として切り出す (デフォルト推奨)
                  - "attach": 直前のMCを曲の冒頭にくっつけて1本の動画にする
                  - "omit": MCは除外して楽曲のみを切り出す
-        reencode: Trueの場合、高精度再エンコード（キーフレーム吸着ズレを完全防止）。
-                  Falseの場合、無劣化ストリームコピー（数秒で終わる超高速カット）。
+        include_opening: オープニング区間を切り出すか
+        include_ending: エンディング区間を切り出すか
+        effects_config: 動画演出設定（フェード、テロップ、終了メッセージ）
+        reencode: Trueの場合、高精度再エンコード
         max_duration: 元動画の総再生時間
-        generate_subtitles: 各曲の歌詞から .srt 字幕ファイルを生成するか
-        generate_youtube_info: YouTube投稿用情報テキスト (.txt) を生成するか
+        generate_subtitles: 歌詞字幕 (.srt) を生成するか
+        generate_youtube_info: YouTube投稿用情報 (.txt) を生成するか
         artist_name: アーティスト名
         live_title: ライブタイトル
         recorded_date: ライブ開催日
@@ -48,13 +54,46 @@ def split_video(
     output_dir.mkdir(parents=True, exist_ok=True)
     generated_files: list[Path] = []
 
-    # 切り出し対象のリストを構築
+    # 切り出しタスクのリストを構築
     cut_tasks: list[dict] = []
 
     for i, seg in enumerate(segments):
         if seg.segment_type == "interval":
             continue
 
+        # オープニング
+        if seg.segment_type == "opening":
+            if include_opening:
+                start_sec = 0.0
+                end_sec = seg.end_seconds
+                safe_title = sanitize_filename(seg.title or "オープニング")
+                filename = f"00_[Opening]_{safe_title}.mp4"
+                cut_tasks.append({
+                    "segment": seg,
+                    "start": start_sec,
+                    "end": end_sec,
+                    "filename": filename,
+                    "kind": "opening",
+                })
+            continue
+
+        # エンディング
+        if seg.segment_type == "ending":
+            if include_ending:
+                start_sec = seg.start_seconds
+                end_sec = max_duration if max_duration and max_duration > start_sec else seg.end_seconds
+                safe_title = sanitize_filename(seg.title or "エンディング")
+                filename = f"99_[Ending]_{safe_title}.mp4"
+                cut_tasks.append({
+                    "segment": seg,
+                    "start": start_sec,
+                    "end": end_sec,
+                    "filename": filename,
+                    "kind": "ending",
+                })
+            continue
+
+        # MC
         if seg.segment_type == "mc":
             if mc_mode == "separate":
                 adj_start, adj_end = seg.get_adjusted_range(
@@ -69,10 +108,11 @@ def split_video(
                     "start": adj_start,
                     "end": adj_end,
                     "filename": filename,
-                    "is_mc": True,
+                    "kind": "mc",
                 })
-            # attach の場合は song の処理時に結合されるためここではスキップ
+            # attach の場合は song の処理時に直前のMCを自動結合
 
+        # 楽曲演奏
         elif seg.segment_type == "song":
             start_sec = seg.start_seconds
             safe_title = sanitize_filename(seg.title)
@@ -94,17 +134,21 @@ def split_video(
                 "start": adj_start,
                 "end": adj_end,
                 "filename": filename,
-                "is_mc": False,
+                "kind": "song",
             })
 
     total = len(cut_tasks)
     print(f"\n合計 {total} 件の動画を切り出します（出力先: {output_dir}）")
+
+    # 演出が有効な場合は強制的に再エンコード
+    has_effects = effects_config is not None and effects_config.is_active
 
     for i, task in enumerate(cut_tasks, start=1):
         seg = task["segment"]
         adj_start = task["start"]
         adj_end = task["end"]
         filename = task["filename"]
+        kind = task["kind"]
         output_path = output_dir / filename
 
         start_str = seconds_to_time_str(adj_start)
@@ -116,7 +160,19 @@ def split_video(
             f"({start_str} 〜 {end_str}, 長さ: {duration_sec:.1f}秒)"
         )
 
-        if reencode:
+        # 楽曲（song）かつ演出が指定されている場合はフィルタを生成
+        vf_filter = ""
+        af_filter = ""
+        if has_effects and kind == "song" and effects_config:
+            vf_filter, af_filter = build_filtergraph(
+                config=effects_config,
+                song_title=seg.title,
+                artist_name=artist_name,
+                duration_sec=duration_sec,
+            )
+
+        if vf_filter or reencode:
+            # 演出合成または高精度再エンコード
             cmd = [
                 "ffmpeg",
                 "-y",
@@ -126,6 +182,13 @@ def split_video(
                 f"{adj_end:.3f}",
                 "-i",
                 str(video_path),
+            ]
+            if vf_filter:
+                cmd.extend(["-vf", vf_filter])
+            if af_filter:
+                cmd.extend(["-af", af_filter])
+
+            cmd.extend([
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -137,8 +200,9 @@ def split_video(
                 "-b:a",
                 "192k",
                 str(output_path),
-            ]
+            ])
         else:
+            # 高速・無劣化ストリームコピー
             cmd = [
                 "ffmpeg",
                 "-y",
@@ -164,14 +228,13 @@ def split_video(
             )
             generated_files.append(output_path)
 
-            # 字幕ファイル (.srt) の出力
-            if generate_subtitles and (seg.lyrics or seg.notes):
+            # 字幕ファイル (.srt) の出力（歌詞がある場合）
+            if generate_subtitles and kind == "song" and seg.lyrics:
                 srt_path = output_path.with_suffix(".srt")
-                lyrics_text = seg.lyrics if seg.lyrics else seg.notes
-                create_srt_file(srt_path, lyrics_text, duration_sec)
+                create_srt_file(srt_path, seg.lyrics, duration_sec)
 
             # YouTube投稿用メタデータ (.txt) の出力
-            if generate_youtube_info and not task["is_mc"]:
+            if generate_youtube_info and kind == "song":
                 info_path = output_dir / f"{output_path.stem}_youtube_info.txt"
                 export_youtube_info(
                     info_path,

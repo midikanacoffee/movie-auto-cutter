@@ -109,6 +109,49 @@ class TestEndToEndSplit(unittest.TestCase):
         self.assertTrue((output_dir_attach / "01_Song A.mp4").exists())
         self.assertTrue((output_dir_attach / "03_[MC+Song]_Song B.mp4").exists())
 
+        # 3. opening / ending を含むフル切り出しテスト
+        segments_full = [
+            SongSegment(index=1, title="開場・SE", start_time="00:00:00", end_time="00:00:02", segment_type="opening"),
+            SongSegment(index=2, title="Song 1", start_time="00:00:03", end_time="00:00:08", segment_type="song"),
+            SongSegment(index=3, title="退場・終演", start_time="00:00:09", end_time="00:00:15", segment_type="ending"),
+        ]
+        output_dir_full = self.test_dir / "split_full"
+        generated_full = split_video(
+            video_path=self.dummy_video,
+            segments=segments_full,
+            output_dir=output_dir_full,
+            margin_start=0.5,
+            margin_end=0.5,
+            include_opening=True,
+            include_ending=True,
+        )
+        self.assertEqual(len(generated_full), 3)
+        self.assertTrue((output_dir_full / "00_[Opening]_開場・SE.mp4").exists())
+        self.assertTrue((output_dir_full / "02_Song 1.mp4").exists())
+        self.assertTrue((output_dir_full / "99_[Ending]_退場・終演.mp4").exists())
+
+        # 4. effects_config 適用テスト（フェード＆テロップ合成）
+        from src.models import VideoEffectsConfig
+        effects = VideoEffectsConfig(
+            enable_fade=True,
+            fade_duration=0.5,
+            enable_title_overlay=True,
+            overlay_position="top_left",
+        )
+        output_dir_fx = self.test_dir / "split_effects"
+        generated_fx = split_video(
+            video_path=self.dummy_video,
+            segments=[segments_full[1]],  # Song 1 (6秒)
+            output_dir=output_dir_fx,
+            margin_start=0.0,
+            margin_end=0.0,
+            effects_config=effects,
+        )
+        self.assertEqual(len(generated_fx), 1)
+        fx_file = output_dir_fx / "02_Song 1.mp4"
+        self.assertTrue(fx_file.exists())
+        self.assertGreater(fx_file.stat().st_size, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
