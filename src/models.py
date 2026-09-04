@@ -6,13 +6,7 @@ from pydantic import BaseModel, Field
 
 
 def time_str_to_seconds(time_str: str) -> float:
-    """HH:MM:SS または MM:SS.sss 形式の文字列を秒数 (float) に変換する。
-
-    例:
-        "01:23" -> 83.0
-        "01:02:03" -> 3723.0
-        "00:02:15.500" -> 135.5
-    """
+    """HH:MM:SS または MM:SS.sss 形式の文字列を秒数 (float) に変換する。"""
     time_str = time_str.strip()
     parts = time_str.split(":")
     try:
@@ -45,6 +39,16 @@ def sanitize_filename(name: str) -> str:
     return sanitized or "untitled"
 
 
+class YouTubeMetadata(BaseModel):
+    """YouTube投稿用メタデータ"""
+
+    title: str = Field(default="", description="YouTube投稿向けタイトル（曲名・アーティスト名・日付等を含む）")
+    description: str = Field(default="", description="YouTube概要欄用テキスト（曲紹介、歌詞抜粋、演奏の見どころ等）")
+    mood_and_atmosphere: str = Field(default="", description="楽曲や演奏の雰囲気・ノリ（疾走感、エモーショナル、MCの盛り上がり等）")
+    recorded_date: str = Field(default="", description="推定されるライブ開催日・収録日（YYYY-MM-DD等）")
+    tags: list[str] = Field(default_factory=list, description="YouTube用おすすめハッシュタグ・キーワード一覧")
+
+
 class SongSegment(BaseModel):
     """ライブ動画内の個別区間（楽曲、MC、インターバル等）の情報"""
 
@@ -60,6 +64,14 @@ class SongSegment(BaseModel):
         default="",
         description="判定の根拠（歌詞の一部、MC内容、演奏の特徴など）",
     )
+    lyrics: str = Field(
+        default="",
+        description="聞き取れた歌詞のテキスト（サビや印象的なフレーズ、または全体）",
+    )
+    youtube_metadata: YouTubeMetadata | None = Field(
+        default=None,
+        description="YouTube投稿用メタデータ（説明文、雰囲気、タグなど）",
+    )
 
     @property
     def start_seconds(self) -> float:
@@ -71,11 +83,11 @@ class SongSegment(BaseModel):
 
     def get_adjusted_range(
         self,
-        margin_start: float = 2.0,
-        margin_end: float = 2.0,
+        margin_start: float = 3.5,
+        margin_end: float = 3.5,
         max_duration: float | None = None,
     ) -> tuple[float, float]:
-        """安全マージン（開始前・終了後）を適用した秒数範囲を返す。"""
+        """安全マージン（開始前・終了後）を適用した秒数範囲を返す（デフォルト前後3.5秒）。"""
         adj_start = max(0.0, self.start_seconds - margin_start)
         adj_end = self.end_seconds + margin_end
         if max_duration is not None:
@@ -88,6 +100,7 @@ class LiveAnalysisResult(BaseModel):
 
     artist_name: str = Field(default="", description="アーティスト名・バンド名")
     live_title: str = Field(default="", description="ライブタイトルまたは概要")
+    recorded_date: str = Field(default="", description="ライブ開催日・収録日時（動画名やMCから推定）")
     segments: list[SongSegment] = Field(
         default_factory=list,
         description="検出された区間（曲・MCなど）の時系列リスト",
