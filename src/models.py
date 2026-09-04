@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+import re
+from typing import Literal
+from pydantic import BaseModel, Field
+
+
+def time_str_to_seconds(time_str: str) -> float:
+    """HH:MM:SS または MM:SS.sss 形式の文字列を秒数 (float) に変換する。
+
+    例:
+        "01:23" -> 83.0
+        "01:02:03" -> 3723.0
+        "00:02:15.500" -> 135.5
+    """
+    time_str = time_str.strip()
+    parts = time_str.split(":")
+    try:
+        if len(parts) == 3:
+            h, m, s = parts
+            return int(h) * 3600 + int(m) * 60 + float(s)
+        elif len(parts) == 2:
+            m, s = parts
+            return int(m) * 60 + float(s)
+        elif len(parts) == 1:
+            return float(parts[0])
+    except ValueError:
+        pass
+    return 0.0
+
+
+def seconds_to_time_str(seconds: float) -> str:
+    """秒数を HH:MM:SS 形式の文字列に変換する。"""
+    seconds = max(0.0, seconds)
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+
+def sanitize_filename(name: str) -> str:
+    """ファイル名として使用できないWindows/Linux禁止文字を除去・置換する。"""
+    sanitized = re.sub(r'[\\/*?:"<>|]', "_", name)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    return sanitized or "untitled"
+
+
+class SongSegment(BaseModel):
+    """ライブ動画内の個別区間（楽曲、MC、インターバル等）の情報"""
+
+    index: int = Field(description="通し番号（1始まり）")
+    title: str = Field(description="曲名、またはMCタイトル。不明な場合は歌詞や特徴に基づくフォールバック名")
+    start_time: str = Field(description="開始時間 (HH:MM:SS または MM:SS)")
+    end_time: str = Field(description="終了時間 (HH:MM:SS または MM:SS)")
+    segment_type: Literal["song", "mc", "interval"] = Field(
+        default="song",
+        description="区間の種類: song(楽曲), mc(トーク・MC), interval(アンコール待ち・歓声等)",
+    )
+    notes: str = Field(
+        default="",
+        description="判定の根拠（歌詞の一部、MC内容、演奏の特徴など）",
+    )
+
+    @property
+    def start_seconds(self) -> float:
+        return time_str_to_seconds(self.start_time)
+
+    @property
+    def end_seconds(self) -> float:
+        return time_str_to_seconds(self.end_time)
+
+    def get_adjusted_range(
+        self,
+        margin_start: float = 2.0,
+        margin_end: float = 2.0,
+        max_duration: float | None = None,
+    ) -> tuple[float, float]:
+        """安全マージン（開始前・終了後）を適用した秒数範囲を返す。"""
+        adj_start = max(0.0, self.start_seconds - margin_start)
+        adj_end = self.end_seconds + margin_end
+        if max_duration is not None:
+            adj_end = min(max_duration, adj_end)
+        return adj_start, adj_end
+
+
+class LiveAnalysisResult(BaseModel):
+    """ライブ全体の解析結果"""
+
+    artist_name: str = Field(default="", description="アーティスト名・バンド名")
+    live_title: str = Field(default="", description="ライブタイトルまたは概要")
+    segments: list[SongSegment] = Field(
+        default_factory=list,
+        description="検出された区間（曲・MCなど）の時系列リスト",
+    )
