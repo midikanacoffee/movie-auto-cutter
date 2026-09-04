@@ -44,7 +44,7 @@ def get_gemini_client() -> genai.Client:
 
 def analyze_live_audio(
     audio_path: Path,
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-3.8-flash",
 ) -> LiveAnalysisResult:
     """音声ファイルをGemini APIにアップロードして解析し、各曲のタイムスタンプと曲名を取得する。
 
