@@ -21,3 +21,45 @@
    ```
 2. `.env` を開き、`GEMINI_API_KEY` に実際のAPIキーを記述します。
    ※ `.env` ファイルはGitには絶対にコミットされません。
+
+## 使い方
+
+### 方法 1: ドラッグ＆ドロップ（最も簡単）
+対象のライブ動画ファイル（`.mp4`, `.mkv`, `.mov` 等）を、プロジェクトフォルダ内にある **`drag_and_drop_cutter.bat`** にドラッグ＆ドロップするだけで自動で処理が開始されます。
+
+### 方法 2: コマンドライン実行
+ターミナル（PowerShell等）から詳細オプションを指定して実行できます：
+
+```powershell
+# 基本実行（楽曲ごとに自動分割）
+python main.py "path/to/live.mp4"
+
+# 出力先フォルダを指定する場合
+python main.py "path/to/live.mp4" -o "D:\MySongs"
+
+# MC区間も動画として切り出す場合
+python main.py "path/to/live.mp4" --include-mc
+
+# まずはAIが認識した曲名・タイムスタンプ（セットリスト）だけ確認したい場合
+python main.py "path/to/live.mp4" --dry-run
+
+# 保存されたJSONを手動で微調整した後に分割を実行する場合
+python main.py "path/to/live.mp4" --from-json "./output/live/setlist.json"
+```
+
+## 出力先とファイル構成
+デフォルトでは、本プロジェクト内の **`output/<動画ファイル名>/`** フォルダに出力されます。
+
+```text
+output/
+└── <動画ファイル名>/
+    ├── 01_曲名A.mp4
+    ├── 02_曲名B.mp4
+    ├── 03_曲名C.mp4
+    ├── ...
+    └── setlist.json   # AIが認識した曲名・時間・メモの一覧データ
+```
+
+> [!NOTE]
+> `output/` フォルダは `.gitignore` によりGit管理外となっているため、切り出された動画ファイルが誤ってGitにコミットされる心配はありません。
+
