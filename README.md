@@ -38,11 +38,15 @@
 
 ## セットアップ
 
-1. 設定用テンプレート `.env.example` をコピーして `.env` を作成します：
+1. 依存ライブラリをインストールします：
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. 設定用テンプレート `.env.example` をコピーして `.env` を作成します：
    ```bash
    cp .env.example .env
    ```
-2. `.env` ファイルを開き、取得したGemini APIキーを設定してください：
+3. `.env` ファイルを開き、取得したGemini APIキーを設定してください：
    ```env
    GEMINI_API_KEY=ここにAPIキーを記述
    ```
@@ -158,3 +162,10 @@ python create_sample_live.py
 より詳細な仕様やトラブルシューティングについては、以下のドキュメントをご参照ください：
 - 📐 [システム詳細設計書 & アーキテクチャ判断記録 (ADR)](docs/live_movie_auto_cutter/architecture.md)
 - ❓ [トラブルシューティング & よくある質問 (FAQ)](docs/live_movie_auto_cutter/troubleshooting.md)
+
+---
+
+## ライセンス
+
+本プロジェクトは [MIT License](LICENSE) のもとで公開されています。
+
