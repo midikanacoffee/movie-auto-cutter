@@ -1,0 +1,37 @@
+# Security & Credentials (Never commit API keys or sensitive env files)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.token
+
+# Media Files & Datasets (Privacy & Copyright Protection)
+*.mp4
+*.m4v
+*.mkv
+*.mov
+*.avi
+*.mp3
+*.m4a
+*.wav
+*.flac
+*.aac
+
+# Workspace Temp / Cache / Output
+temp/
+output/
+scratch/
+logs/
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
